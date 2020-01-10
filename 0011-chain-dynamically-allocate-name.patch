@@ -1,0 +1,108 @@
+From 52e03423b7fb8d3ae8cae1770c70c7519a03f341 Mon Sep 17 00:00:00 2001
+From: Phil Sutter <psutter@redhat.com>
+Date: Tue, 16 May 2017 15:29:27 +0200
+Subject: [PATCH] chain: dynamically allocate name
+
+Bugzilla: https://bugzilla.redhat.com/show_bug.cgi?id=1353320
+Upstream Status: libnftnl commit 23c2ef2f9812a
+Conflicts: Patch applied manually to fit the rest of the code which was
+	   changed changed a lot upstream. Future backports of the
+	   following commits have to adjust code added here as well:
+	   * 8f4de3888ce74 ("src: return value on setters that
+	                    internally allocate memory")
+           * 46b887ca6b038 ("src: simplify unsetters")
+	   * 50b175dbd598e ("src: check for flags before releasing
+	                    attributes")
+
+commit 23c2ef2f9812a04c3bd8248de70cad37a176550a
+Author: Pablo Neira Ayuso <pablo@netfilter.org>
+Date:   Fri Jun 10 14:34:10 2016 +0200
+
+    chain: dynamically allocate name
+
+    Just in case we ever support chain with larger names in the future,
+    this will ensure the library doesn't break. Although I don't expect
+    allocating more bytes for this anytime soon, but let's be conservative
+    here.
+
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ src/chain.c | 21 +++++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/src/chain.c b/src/chain.c
+index ff87d1b..a91f1bc 100644
+--- a/src/chain.c
++++ b/src/chain.c
+@@ -32,7 +32,7 @@
+ struct nftnl_chain {
+ 	struct list_head head;
+ 
+-	char		name[NFT_CHAIN_MAXNAMELEN];
++	const char	*name;
+ 	const char	*type;
+ 	const char	*table;
+ 	const char	*dev;
+@@ -95,13 +95,14 @@ EXPORT_SYMBOL_ALIAS(nftnl_chain_alloc, nft_chain_alloc);
+ 
+ void nftnl_chain_free(const struct nftnl_chain *c)
+ {
++	if (c->name != NULL)
++		xfree(c->name);
+ 	if (c->table != NULL)
+ 		xfree(c->table);
+ 	if (c->type != NULL)
+ 		xfree(c->type);
+ 	if (c->dev != NULL)
+ 		xfree(c->dev);
+-
+ 	xfree(c);
+ }
+ EXPORT_SYMBOL_ALIAS(nftnl_chain_free, nft_chain_free);
+@@ -118,6 +119,12 @@ void nftnl_chain_unset(struct nftnl_chain *c, uint16_t attr)
+ 		return;
+ 
+ 	switch (attr) {
++	case NFTNL_CHAIN_NAME:
++		if (c->name) {
++			xfree(c->name);
++			c->name = NULL;
++		}
++		break;
+ 	case NFTNL_CHAIN_TABLE:
+ 		if (c->table) {
+ 			xfree(c->table);
+@@ -132,7 +139,6 @@ void nftnl_chain_unset(struct nftnl_chain *c, uint16_t attr)
+ 			c->type = NULL;
+ 		}
+ 		break;
+-	case NFTNL_CHAIN_NAME:
+ 	case NFTNL_CHAIN_HOOKNUM:
+ 	case NFTNL_CHAIN_PRIO:
+ 	case NFTNL_CHAIN_POLICY:
+@@ -175,7 +181,10 @@ void nftnl_chain_set_data(struct nftnl_chain *c, uint16_t attr,
+ 
+ 	switch(attr) {
+ 	case NFTNL_CHAIN_NAME:
+-		strncpy(c->name, data, NFT_CHAIN_MAXNAMELEN);
++		if (c->name)
++			xfree(c->name);
++
++		c->name = strdup(data);
+ 		break;
+ 	case NFTNL_CHAIN_TABLE:
+ 		if (c->table)
+@@ -533,8 +542,8 @@ int nftnl_chain_nlmsg_parse(const struct nlmsghdr *nlh, struct nftnl_chain *c)
+ 		return -1;
+ 
+ 	if (tb[NFTA_CHAIN_NAME]) {
+-		strncpy(c->name, mnl_attr_get_str(tb[NFTA_CHAIN_NAME]),
+-			NFT_CHAIN_MAXNAMELEN);
++		xfree(c->name);
++		c->name = strdup(mnl_attr_get_str(tb[NFTA_CHAIN_NAME]));
+ 		c->flags |= (1 << NFTNL_CHAIN_NAME);
+ 	}
+ 	if (tb[NFTA_CHAIN_TABLE]) {
+-- 
+1.8.3.1
+

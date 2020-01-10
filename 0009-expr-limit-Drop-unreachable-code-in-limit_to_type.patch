@@ -1,0 +1,39 @@
+From 546add7a95c037d9149b2c921b22f32ccb26896e Mon Sep 17 00:00:00 2001
+From: Phil Sutter <psutter@redhat.com>
+Date: Tue, 16 May 2017 12:34:38 +0200
+Subject: [PATCH] expr/limit: Drop unreachable code in limit_to_type()
+
+Bugzilla: https://bugzilla.redhat.com/show_bug.cgi?id=1353312
+Upstream Status: libnftnl commit e381cd99e9eb0
+
+commit e381cd99e9eb0e9519a976c8288f6b9e051ada3a
+Author: Phil Sutter <phil@nwl.cc>
+Date:   Fri Aug 12 01:33:36 2016 +0200
+
+    expr/limit: Drop unreachable code in limit_to_type()
+
+    The function returns from inside the switch() in any case, so the final
+    return statement is never reached.
+
+    Fixes: 7769cbd9dfe69 ("expr: limit: add per-byte limiting support")
+    Signed-off-by: Phil Sutter <phil@nwl.cc>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ src/expr/limit.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/expr/limit.c b/src/expr/limit.c
+index 4bd096e..cdff81d 100644
+--- a/src/expr/limit.c
++++ b/src/expr/limit.c
+@@ -259,7 +259,6 @@ static const char *limit_to_type(enum nft_limit_type type)
+ 	case NFT_LIMIT_PKT_BYTES:
+ 		return "bytes";
+ 	}
+-	return "unknown";
+ }
+ 
+ static int nftnl_expr_limit_snprintf_default(char *buf, size_t len,
+-- 
+1.8.3.1
+

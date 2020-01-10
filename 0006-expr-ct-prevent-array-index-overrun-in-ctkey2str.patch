@@ -1,0 +1,41 @@
+From 330acafe4d0dec5dfa3b110e26e24aaa189ea8dc Mon Sep 17 00:00:00 2001
+From: Phil Sutter <psutter@redhat.com>
+Date: Tue, 16 May 2017 12:32:00 +0200
+Subject: [PATCH] expr/ct: prevent array index overrun in ctkey2str()
+
+Bugzilla: https://bugzilla.redhat.com/show_bug.cgi?id=1353309
+Upstream Status: libnftnl commit cca54d5e9c3f4
+
+commit cca54d5e9c3f436cd85bc55415c08bf671bfefe6
+Author: Phil Sutter <phil@nwl.cc>
+Date:   Fri Aug 12 01:33:35 2016 +0200
+
+    expr/ct: prevent array index overrun in ctkey2str()
+
+    The array has NFT_CT_MAX fields, so indices must be less than that
+    number.
+
+    Fixes: 977b7a1dbe1bd ("ct: xml: use key names instead of numbers")
+    Cc: Arturo Borrero Gonzalez <arturo.borrero.glez@gmail.com>
+    Signed-off-by: Phil Sutter <phil@nwl.cc>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ src/expr/ct.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/expr/ct.c b/src/expr/ct.c
+index 7d96df4..1a53b49 100644
+--- a/src/expr/ct.c
++++ b/src/expr/ct.c
+@@ -173,7 +173,7 @@ static const char *ctkey2str_array[NFT_CT_MAX] = {
+ 
+ static const char *ctkey2str(uint32_t ctkey)
+ {
+-	if (ctkey > NFT_CT_MAX)
++	if (ctkey >= NFT_CT_MAX)
+ 		return "unknown";
+ 
+ 	return ctkey2str_array[ctkey];
+-- 
+1.8.3.1
+
