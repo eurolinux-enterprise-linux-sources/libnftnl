@@ -1,5 +1,5 @@
-%define rpmversion 1.0.6
-%define specrelease 6%{?dist}
+%define rpmversion 1.0.8
+%define specrelease 1%{?dist}
 
 Name:           libnftnl
 Version:        %{rpmversion}
@@ -7,24 +7,13 @@ Release:        %{specrelease}%{?buildid}
 Summary:        Library for low-level interaction with nftables Netlink's API over libmnl
 License:        GPLv2+
 URL:            http://netfilter.org/projects/libnftnl/
-Source0:        %{name}-%{version}.tar.xz
+Source0:        http://ftp.netfilter.org/pub/libnftnl/libnftnl-%{version}.tar.bz2
 BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  libtool
 BuildRequires:  libmnl-devel
 #BuildRequires:  mxml-devel
 BuildRequires:  jansson-devel
-Patch0:             0001-src-add-range-expression.patch
-Patch1:             0002-tests-stricter-string-attribute-validation.patch
-Patch2:             0003-expr-lookup-give-support-for-inverted-matching.patch
-Patch3:             0004-set-prevent-memleak-in-nftnl_jansson_parse_set_info.patch
-Patch4:             0005-utils-Don-t-return-directly-from-SNPRINTF_BUFFER_SIZ.patch
-Patch5:             0006-expr-ct-prevent-array-index-overrun-in-ctkey2str.patch
-Patch6:             0007-src-Fix-nftnl_-_get_data-to-return-the-real-attribut.patch
-Patch7:             0008-ruleset-Initialize-ctx.flags-before-calling-nftnl_ru.patch
-Patch8:             0009-expr-limit-Drop-unreachable-code-in-limit_to_type.patch
-Patch9:             0010-src-Avoid-returning-uninitialized-data.patch
-Patch10:            0011-chain-dynamically-allocate-name.patch
 
 %description
 A library for low-level interaction with nftables Netlink's API over libmnl.
@@ -71,6 +60,9 @@ find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 %{_includedir}/libnftnl
 
 %changelog
+* Fri Oct 13 2017 Phil Sutter <psutter@redhat.com> [1.0.8-1.el7]
+- Rebase onto upstream version 1.0.8 (Phil Sutter) [1472260]
+
 * Tue May 16 2017 Phil Sutter <psutter@redhat.com> [1.0.6-6.el7]
 - chain: dynamically allocate name (Phil Sutter) [1353320]
 - src: Avoid returning uninitialized data (Phil Sutter) [1353319]

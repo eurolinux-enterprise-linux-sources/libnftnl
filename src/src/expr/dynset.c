@@ -53,6 +53,8 @@ nftnl_expr_dynset_set(struct nftnl_expr *e, uint16_t type,
 		break;
 	case NFTNL_EXPR_DYNSET_SET_NAME:
 		dynset->set_name = strdup((const char *)data);
+		if (!dynset->set_name)
+			return -1;
 		break;
 	case NFTNL_EXPR_DYNSET_SET_ID:
 		dynset->set_id = *((uint32_t *)data);
@@ -86,8 +88,10 @@ nftnl_expr_dynset_get(const struct nftnl_expr *e, uint16_t type,
 		*data_len = sizeof(dynset->timeout);
 		return &dynset->timeout;
 	case NFTNL_EXPR_DYNSET_SET_NAME:
+		*data_len = strlen(dynset->set_name) + 1;
 		return dynset->set_name;
 	case NFTNL_EXPR_DYNSET_SET_ID:
+		*data_len = sizeof(dynset->set_id);
 		return &dynset->set_id;
 	case NFTNL_EXPR_DYNSET_EXPR:
 		return dynset->expr;
@@ -183,6 +187,8 @@ nftnl_expr_dynset_parse(struct nftnl_expr *e, struct nlattr *attr)
 	if (tb[NFTA_DYNSET_SET_NAME]) {
 		dynset->set_name =
 			strdup(mnl_attr_get_str(tb[NFTA_DYNSET_SET_NAME]));
+		if (!dynset->set_name)
+			return -1;
 		e->flags |= (1 << NFTNL_EXPR_DYNSET_SET_NAME);
 	}
 	if (tb[NFTA_DYNSET_SET_ID]) {
@@ -236,43 +242,6 @@ nftnl_expr_dynset_json_parse(struct nftnl_expr *e, json_t *root,
 }
 
 static int
-nftnl_expr_dynset_xml_parse(struct nftnl_expr *e, mxml_node_t *tree,
-			       struct nftnl_parse_err *err)
-{
-#ifdef XML_PARSING
-	const char *set_name;
-	uint32_t uval32;
-	uint64_t uval64;
-
-	set_name = nftnl_mxml_str_parse(tree, "set", MXML_DESCEND_FIRST,
-				      NFTNL_XML_MAND, err);
-	if (set_name != NULL)
-		nftnl_expr_set_str(e, NFTNL_EXPR_DYNSET_SET_NAME, set_name);
-
-	if (nftnl_mxml_reg_parse(tree, "sreg_key", &uval32, MXML_DESCEND,
-			       NFTNL_XML_MAND, err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_DYNSET_SREG_KEY, uval32);
-
-	if (nftnl_mxml_reg_parse(tree, "sreg_data", &uval32, MXML_DESCEND,
-			       NFTNL_XML_MAND, err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_DYNSET_SREG_DATA, uval32);
-
-	if (nftnl_mxml_num_parse(tree, "op", MXML_DESCEND_FIRST, BASE_DEC,
-			       &uval32, NFTNL_TYPE_U32, NFTNL_XML_MAND,  err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_DYNSET_OP, uval32);
-
-	if (nftnl_mxml_num_parse(tree, "timeout", MXML_DESCEND_FIRST, BASE_DEC,
-			       &uval64, NFTNL_TYPE_U64, NFTNL_XML_MAND,  err) == 0)
-		nftnl_expr_set_u64(e, NFTNL_EXPR_DYNSET_TIMEOUT, uval64);
-
-	return 0;
-#else
-	errno = EOPNOTSUPP;
-	return -1;
-#endif
-}
-
-static int
 nftnl_expr_dynset_export(char *buf, size_t size,
 			 const struct nftnl_expr *e, int type)
 {
@@ -289,7 +258,7 @@ nftnl_expr_dynset_export(char *buf, size_t size,
 	return nftnl_buf_done(&b);
 }
 
-static char *op2str_array[] = {
+static const char *op2str_array[] = {
 	[NFT_DYNSET_OP_ADD]		= "add",
 	[NFT_DYNSET_OP_UPDATE] 		= "update",
 };
@@ -307,34 +276,35 @@ nftnl_expr_dynset_snprintf_default(char *buf, size_t size,
 {
 	struct nftnl_expr_dynset *dynset = nftnl_expr_data(e);
 	struct nftnl_expr *expr;
-	int len = size, offset = 0, ret;
+	int remain = size, offset = 0, ret;
 
-	ret = snprintf(buf, len, "%s reg_key %u set %s ",
+	ret = snprintf(buf, remain, "%s reg_key %u set %s ",
 		       op2str(dynset->op), dynset->sreg_key, dynset->set_name);
-	SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+	SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 
 	if (e->flags & (1 << NFTNL_EXPR_DYNSET_SREG_DATA)) {
-		ret = snprintf(buf+offset, len, "sreg_data %u ", dynset->sreg_data);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		ret = snprintf(buf + offset, remain, "sreg_data %u ",
+			       dynset->sreg_data);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 	}
 	if (e->flags & (1 << NFTNL_EXPR_DYNSET_TIMEOUT)) {
-		ret = snprintf(buf+offset, len, "timeout %"PRIu64"ms ",
+		ret = snprintf(buf + offset, remain, "timeout %"PRIu64"ms ",
 			       dynset->timeout);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 	}
 	if (e->flags & (1 << NFTNL_EXPR_DYNSET_EXPR)) {
 		expr = dynset->expr;
-		ret = snprintf(buf+offset, len, "expr [ %s ",
+		ret = snprintf(buf + offset, remain, "expr [ %s ",
 			       expr->ops->name);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 
-		ret = nftnl_expr_snprintf(buf+offset, len, expr,
+		ret = nftnl_expr_snprintf(buf + offset, remain, expr,
 					     NFTNL_OUTPUT_DEFAULT,
 					     NFTNL_OF_EVENT_ANY);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 
-		ret = snprintf(buf+offset, len, "] ");
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		ret = snprintf(buf + offset, remain, "] ");
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 	}
 
 	return offset;
@@ -344,7 +314,6 @@ static int
 nftnl_expr_dynset_snprintf(char *buf, size_t size, uint32_t type,
 			   uint32_t flags, const struct nftnl_expr *e)
 {
-
 	switch (type) {
 	case NFTNL_OUTPUT_DEFAULT:
 		return nftnl_expr_dynset_snprintf_default(buf, size, e);
@@ -364,16 +333,41 @@ static void nftnl_expr_dynset_free(const struct nftnl_expr *e)
 	xfree(dynset->set_name);
 }
 
+static bool nftnl_expr_dynset_cmp(const struct nftnl_expr *e1,
+				  const struct nftnl_expr *e2)
+{
+	struct nftnl_expr_dynset *d1 = nftnl_expr_data(e1);
+	struct nftnl_expr_dynset *d2 = nftnl_expr_data(e2);
+	bool eq = true;
+
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_SREG_KEY))
+		eq &= (d1->sreg_key == d2->sreg_key);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_SREG_DATA))
+		eq &= (d1->sreg_data == d2->sreg_data);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_OP))
+		eq &= (d1->op == d2->op);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_TIMEOUT))
+		eq &= (d1->timeout == d2->timeout);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_EXPR))
+		eq &= nftnl_expr_cmp(d1->expr, d2->expr);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_SET_NAME))
+		eq &= !strcmp(d1->set_name, d2->set_name);
+	if (e1->flags & (1 << NFTNL_EXPR_DYNSET_SET_ID))
+		eq &= (d1->set_id == d2->set_id);
+
+	return eq;
+}
+
 struct expr_ops expr_ops_dynset = {
 	.name		= "dynset",
 	.alloc_len	= sizeof(struct nftnl_expr_dynset),
 	.max_attr	= NFTA_DYNSET_MAX,
 	.free		= nftnl_expr_dynset_free,
+	.cmp		= nftnl_expr_dynset_cmp,
 	.set		= nftnl_expr_dynset_set,
 	.get		= nftnl_expr_dynset_get,
 	.parse		= nftnl_expr_dynset_parse,
 	.build		= nftnl_expr_dynset_build,
 	.snprintf	= nftnl_expr_dynset_snprintf,
-	.xml_parse	= nftnl_expr_dynset_xml_parse,
 	.json_parse	= nftnl_expr_dynset_json_parse,
 };

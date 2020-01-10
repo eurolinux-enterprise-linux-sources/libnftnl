@@ -139,7 +139,7 @@ nftnl_expr_cmp_parse(struct nftnl_expr *e, struct nlattr *attr)
 	return ret;
 }
 
-static char *expr_cmp_str[] = {
+static const char *expr_cmp_str[] = {
 	[NFT_CMP_EQ]	= "eq",
 	[NFT_CMP_NEQ]	= "neq",
 	[NFT_CMP_LT]	= "lt",
@@ -209,41 +209,6 @@ static int nftnl_expr_cmp_json_parse(struct nftnl_expr *e, json_t *root,
 #endif
 }
 
-static int nftnl_expr_cmp_xml_parse(struct nftnl_expr *e, mxml_node_t *tree,
-				       struct nftnl_parse_err *err)
-{
-#ifdef XML_PARSING
-	struct nftnl_expr_cmp *cmp = nftnl_expr_data(e);
-	const char *op;
-	int32_t op_value;
-	uint32_t sreg;
-
-	if (nftnl_mxml_reg_parse(tree, "sreg", &sreg, MXML_DESCEND_FIRST,
-			       NFTNL_XML_MAND, err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_CMP_SREG, sreg);
-
-	op = nftnl_mxml_str_parse(tree, "op", MXML_DESCEND_FIRST, NFTNL_XML_MAND,
-				err);
-	if (op != NULL) {
-		op_value = nftnl_str2cmp(op);
-		if (op_value < 0)
-			return -1;
-
-		nftnl_expr_set_u32(e, NFTNL_EXPR_CMP_OP, op_value);
-	}
-
-	if (nftnl_mxml_data_reg_parse(tree, "data",
-				    &cmp->data, NFTNL_XML_MAND,
-				    err) == DATA_VALUE)
-		e->flags |= (1 << NFTNL_EXPR_CMP_DATA);
-
-	return 0;
-#else
-	errno = EOPNOTSUPP;
-	return -1;
-#endif
-}
-
 static int nftnl_expr_cmp_export(char *buf, size_t size,
 				 const struct nftnl_expr *e, int type)
 {
@@ -264,15 +229,15 @@ static int nftnl_expr_cmp_snprintf_default(char *buf, size_t size,
 					   const struct nftnl_expr *e)
 {
 	struct nftnl_expr_cmp *cmp = nftnl_expr_data(e);
-	int len = size, offset = 0, ret;
+	int remain = size, offset = 0, ret;
 
-	ret = snprintf(buf, len, "%s reg %u ",
-		       expr_cmp_str[cmp->op], cmp->sreg);
-	SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+	ret = snprintf(buf, remain, "%s reg %u ",
+		       cmp2str(cmp->op), cmp->sreg);
+	SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 
-	ret = nftnl_data_reg_snprintf(buf+offset, len, &cmp->data,
+	ret = nftnl_data_reg_snprintf(buf + offset, remain, &cmp->data,
 				    NFTNL_OUTPUT_DEFAULT, 0, DATA_VALUE);
-	SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+	SNPRINTF_BUFFER_SIZE(ret, remain, offset);
 
 	return offset;
 }
@@ -293,15 +258,32 @@ nftnl_expr_cmp_snprintf(char *buf, size_t size, uint32_t type,
 	return -1;
 }
 
+static bool nftnl_expr_cmp_cmp(const struct nftnl_expr *e1,
+			       const struct nftnl_expr *e2)
+{
+	struct nftnl_expr_cmp *c1 = nftnl_expr_data(e1);
+	struct nftnl_expr_cmp *c2 = nftnl_expr_data(e2);
+	bool eq = true;
+
+	if (e1->flags & (1 << NFTNL_EXPR_CMP_DATA))
+		eq &= nftnl_data_reg_cmp(&c1->data, &c2->data, DATA_VALUE);
+	if (e1->flags & (1 << NFTNL_EXPR_CMP_SREG))
+		eq &= (c1->sreg == c2->sreg);
+	if (e1->flags & (1 << NFTNL_EXPR_CMP_OP))
+		eq &= (c1->op == c2->op);
+
+	return eq;
+}
+
 struct expr_ops expr_ops_cmp = {
 	.name		= "cmp",
 	.alloc_len	= sizeof(struct nftnl_expr_cmp),
 	.max_attr	= NFTA_CMP_MAX,
+	.cmp		= nftnl_expr_cmp_cmp,
 	.set		= nftnl_expr_cmp_set,
 	.get		= nftnl_expr_cmp_get,
 	.parse		= nftnl_expr_cmp_parse,
 	.build		= nftnl_expr_cmp_build,
 	.snprintf	= nftnl_expr_cmp_snprintf,
-	.xml_parse	= nftnl_expr_cmp_xml_parse,
 	.json_parse	= nftnl_expr_cmp_json_parse,
 };

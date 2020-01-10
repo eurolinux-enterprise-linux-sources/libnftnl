@@ -15,6 +15,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/netfilter/nf_tables.h>
+#include <linux/netfilter/nf_log.h>
 
 #include "internal.h"
 #include <libmnl/libmnl.h>
@@ -37,10 +38,12 @@ static int nftnl_expr_log_set(struct nftnl_expr *e, uint16_t type,
 
 	switch(type) {
 	case NFTNL_EXPR_LOG_PREFIX:
-		if (log->prefix)
+		if (log->flags & (1 << NFTNL_EXPR_LOG_PREFIX))
 			xfree(log->prefix);
 
 		log->prefix = strdup(data);
+		if (!log->prefix)
+			return -1;
 		break;
 	case NFTNL_EXPR_LOG_GROUP:
 		log->group = *((uint16_t *)data);
@@ -155,6 +158,8 @@ nftnl_expr_log_parse(struct nftnl_expr *e, struct nlattr *attr)
 			xfree(log->prefix);
 
 		log->prefix = strdup(mnl_attr_get_str(tb[NFTA_LOG_PREFIX]));
+		if (!log->prefix)
+			return -1;
 		e->flags |= (1 << NFTNL_EXPR_LOG_PREFIX);
 	}
 	if (tb[NFTA_LOG_GROUP]) {
@@ -220,68 +225,51 @@ static int nftnl_expr_log_json_parse(struct nftnl_expr *e, json_t *root,
 #endif
 }
 
-static int nftnl_expr_log_xml_parse(struct nftnl_expr *e,
-				       mxml_node_t *tree,
-				       struct nftnl_parse_err *err)
-{
-#ifdef XML_PARSING
-	const char *prefix;
-	uint32_t snaplen, level, flags;
-	uint16_t group, qthreshold;
-
-	prefix = nftnl_mxml_str_parse(tree, "prefix", MXML_DESCEND_FIRST,
-				    NFTNL_XML_MAND, err);
-	if (prefix != NULL)
-		nftnl_expr_set_str(e, NFTNL_EXPR_LOG_PREFIX, prefix);
-
-	if (nftnl_mxml_num_parse(tree, "group", MXML_DESCEND_FIRST, BASE_DEC,
-			       &group, NFTNL_TYPE_U16, NFTNL_XML_MAND, err) == 0)
-		nftnl_expr_set_u16(e, NFTNL_EXPR_LOG_GROUP, group);
-
-	if (nftnl_mxml_num_parse(tree, "snaplen", MXML_DESCEND_FIRST, BASE_DEC,
-			       &snaplen, NFTNL_TYPE_U32, NFTNL_XML_MAND, err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_LOG_SNAPLEN, snaplen);
-
-	if (nftnl_mxml_num_parse(tree, "qthreshold", MXML_DESCEND_FIRST, BASE_DEC,
-			       &qthreshold, NFTNL_TYPE_U16, NFTNL_XML_MAND,
-			       err) == 0)
-		nftnl_expr_set_u16(e, NFTNL_EXPR_LOG_QTHRESHOLD, qthreshold);
-
-	if (nftnl_mxml_num_parse(tree, "level", MXML_DESCEND_FIRST, BASE_DEC,
-			       &level, NFTNL_TYPE_U16, NFTNL_XML_MAND,
-			       err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_LOG_LEVEL, level);
-
-	if (nftnl_mxml_num_parse(tree, "flags", MXML_DESCEND_FIRST, BASE_DEC,
-			       &flags, NFTNL_TYPE_U16, NFTNL_XML_MAND,
-			       err) == 0)
-		nftnl_expr_set_u32(e, NFTNL_EXPR_LOG_FLAGS, flags);
-
-	return 0;
-#else
-	errno = EOPNOTSUPP;
-	return -1;
-#endif
-}
-
 static int nftnl_expr_log_snprintf_default(char *buf, size_t size,
 					   const struct nftnl_expr *e)
 {
 	struct nftnl_expr_log *log = nftnl_expr_data(e);
-	int ret, offset = 0, len = size;
+	int ret, offset = 0, remain = size;
 
-	ret = snprintf(buf, len, "prefix %s ", log->prefix);
-	SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+	if (e->flags & (1 << NFTNL_EXPR_LOG_PREFIX)) {
+		ret = snprintf(buf, remain, "prefix %s ", log->prefix);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+	}
 
 	if (e->flags & (1 << NFTNL_EXPR_LOG_GROUP)) {
-		ret = snprintf(buf + offset, len,
-			       "group %u snaplen %u qthreshold %u",
+		ret = snprintf(buf + offset, remain,
+			       "group %u snaplen %u qthreshold %u ",
 			       log->group, log->snaplen, log->qthreshold);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
-	} else if (e->flags & (1 << NFTNL_EXPR_LOG_LEVEL)) {
-		ret = snprintf(buf + offset, len, "level %u flags %u",
-			       log->level, log->flags);
-		SNPRINTF_BUFFER_SIZE(ret, size, len, offset);
+		SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+	} else {
+		if (e->flags & (1 << NFTNL_EXPR_LOG_LEVEL)) {
+			ret = snprintf(buf + offset, remain, "level %u ",
+				       log->level);
+			SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+		}
+		if (e->flags & (1 << NFTNL_EXPR_LOG_FLAGS)) {
+			if (log->flags & NF_LOG_TCPSEQ) {
+				ret = snprintf(buf + offset, remain, "tcpseq ");
+				SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+			}
+			if (log->flags & NF_LOG_TCPOPT) {
+				ret = snprintf(buf + offset, remain, "tcpopt ");
+				SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+			}
+			if (log->flags & NF_LOG_IPOPT) {
+				ret = snprintf(buf + offset, remain, "ipopt ");
+				SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+			}
+			if (log->flags & NF_LOG_UID) {
+				ret = snprintf(buf + offset, remain, "uid ");
+				SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+			}
+			if (log->flags & NF_LOG_MACDECODE) {
+				ret = snprintf(buf + offset, remain,
+					       "macdecode ");
+				SNPRINTF_BUFFER_SIZE(ret, remain, offset);
+			}
+		}
 	}
 
 	return offset;
@@ -304,7 +292,7 @@ static int nftnl_expr_log_export(char *buf, size_t size,
 	if (e->flags & (1 << NFTNL_EXPR_LOG_LEVEL))
 		nftnl_buf_u32(&b, type, log->level, LEVEL);
 	if (e->flags & (1 << NFTNL_EXPR_LOG_FLAGS))
-		nftnl_buf_u32(&b, type, log->level, FLAGS);
+		nftnl_buf_u32(&b, type, log->flags, FLAGS);
 
 	return nftnl_buf_done(&b);
 }
@@ -332,16 +320,39 @@ static void nftnl_expr_log_free(const struct nftnl_expr *e)
 	xfree(log->prefix);
 }
 
+static bool nftnl_expr_log_cmp(const struct nftnl_expr *e1,
+				     const struct nftnl_expr *e2)
+{
+	struct nftnl_expr_log *l1 = nftnl_expr_data(e1);
+	struct nftnl_expr_log *l2 = nftnl_expr_data(e2);
+	bool eq = true;
+
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_SNAPLEN))
+		eq &= (l1->snaplen == l2->snaplen);
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_GROUP))
+		eq &= (l1->group == l2->group);
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_QTHRESHOLD))
+		eq &= (l1->qthreshold == l2->qthreshold);
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_LEVEL))
+		eq &= (l1->level == l2->level);
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_FLAGS))
+		eq &= (l1->flags == l2->flags);
+	if (e1->flags & (1 << NFTNL_EXPR_LOG_PREFIX))
+		eq &= !strcmp(l1->prefix, l2->prefix);
+
+	return eq;
+}
+
 struct expr_ops expr_ops_log = {
 	.name		= "log",
 	.alloc_len	= sizeof(struct nftnl_expr_log),
 	.max_attr	= NFTA_LOG_MAX,
 	.free		= nftnl_expr_log_free,
+	.cmp		= nftnl_expr_log_cmp,
 	.set		= nftnl_expr_log_set,
 	.get		= nftnl_expr_log_get,
 	.parse		= nftnl_expr_log_parse,
 	.build		= nftnl_expr_log_build,
 	.snprintf	= nftnl_expr_log_snprintf,
-	.xml_parse	= nftnl_expr_log_xml_parse,
 	.json_parse	= nftnl_expr_log_json_parse,
 };
